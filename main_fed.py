@@ -103,7 +103,7 @@ class DatasetSplit(Dataset):
 
 
 class ClientUpdate(object):
-    def __init__(self, train_set, idxs_train, idxs_val, criterion, lr, device, batch_size, rot_deg, num_users):
+    def __init__(self, train_set, idxs_train, idxs_val, criterion, lr, device, batch_size, rot_deg, num_users, dataset):
         self.device = device
         self.criterion = criterion
         self.lr = lr
@@ -115,7 +115,11 @@ class ClientUpdate(object):
         
         self.ldr_train = DataLoader(self.train_set, batch_size=batch_size, shuffle=True)
         
-        self.local_model = CNNFashion(num_classes=10).to(self.device)
+        if(args.dataset=='cifar10'):
+            self.local_model = CNN(num_classes=10).to(self.device)
+        elif(args.dataset=='fashion-mnist'):
+            self.local_model = CNNFashion(num_classes=10).to(self.device)
+            
         self.best_model = copy.deepcopy(self.local_model)
         
         self.received_models = []
@@ -238,7 +242,29 @@ def test(model,criterion,test_loader,device):
     test_loss /= len(test_loader.dataset)
     test_acc = 100 * correct / total
     return test_loss, test_acc
-    
+
+def test_labelshift(model,criterion,test_loader,device,group_labels):
+    model.eval()
+    test_loss = 0
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for batch_idx, (inputs, labels) in enumerate(test_loader):
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+            if(labels.item() in group_labels):
+                log_probs = model(inputs).view(1,10)
+
+                _, predicted = torch.max(log_probs.data, 1)
+                test_loss += criterion(log_probs, labels.long()).item()
+
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+                
+    test_loss /= len(test_loader.dataset)
+    test_acc = 100 * correct / total
+    return test_loss, test_acc
+
 if __name__ == '__main__':   
     args = args_parser()
     
@@ -251,7 +277,7 @@ if __name__ == '__main__':
     if(not filexist):
         with open('./save/'+filename,'a') as f1:
 
-            f1.write('n_rounds;n_rouns_pens;num_clients;local_ep;bs;lr;n_clusters;pens;DAC;DAC_var;oracle;random;top_m;n_sampled;n_extra_neighbours;n_data_train;n_data_val;tau;test_acc0;test_acc1;test_acc2;test_acc3;dataset')
+            f1.write('n_rounds;n_rouns_pens;num_clients;local_ep;bs;lr;n_clusters;pens;DAC;DAC_var;oracle;random;top_m;n_sampled;n_data_train;n_data_val;tau;test_acc0;test_acc1;test_acc2;test_acc3;dataset')
 
             f1.write('\n')
             
@@ -271,28 +297,31 @@ if __name__ == '__main__':
     #assign data samples to clients
     
     if(args.iid == 'label'):
+        if(args.dataset == 'fashion-mnist'):
+            print("Error: Dataset Fahsion-MNIST not yet implemented for label shift. Try covariate-shift or change to CIFAR-10")
+            exit()
         dict_users, dict_users_val = sample_cifargroups(train_dataset, num_clients, args.n_data_train, args.n_data_val) 
         
     elif(args.iid == 'covariate'):
         dict_users, dict_users_val = sample_labels_iid(train_dataset, num_clients, args.n_data_train, args.n_data_val)
+        cluster_idx = np.zeros(num_clients,dtype='int')
+        cluster_list = []
         if(args.n_clusters==4):
-            cluster_list = []
-            
             #rot_deg = [0,90,180,270] #cluster rotations
             rot_deg = [0, 180, 10, 350]
-            cluster_idx = np.zeros(100,dtype='int')
 
-            #hard-coded as of now, cluster assignment for 100 clients
-            cluster_idx[0:70] = np.zeros(70,dtype='int')
-            cluster_idx[70:90] = 1*np.ones(20,dtype='int')
-            cluster_idx[90:95] = 2*np.ones(5,dtype='int')
-            cluster_idx[95:] = 3*np.ones(5,dtype='int')
+            #hard-coded as of now
+            cluster_idx[0:int(0.7*num_clients)] = np.zeros(int(0.7*num_clients),dtype='int')
+            cluster_idx[int(0.7*num_clients):int(0.9*num_clients)] = 1*np.ones(int(0.2*num_clients),dtype='int')
+            cluster_idx[int(0.9*num_clients):int(0.95*num_clients)] = 2*np.ones(int(0.05*num_clients),dtype='int')
+            cluster_idx[int(0.95*num_clients):] = 3*np.ones(int(0.05*num_clients),dtype='int')
 
             cluster_0 = np.where(cluster_idx==0)[0]
             cluster_1 = np.where(cluster_idx==1)[0]
             cluster_2 = np.where(cluster_idx==2)[0]
             cluster_3 = np.where(cluster_idx==3)[0]
         elif(args.n_clusters == 2):
+            rot_deg = [0, 180]
             cluster_0 = np.where(cluster_idx==0)[0]
             cluster_1 = np.where(cluster_idx==1)[0]
                     
@@ -303,12 +332,13 @@ if __name__ == '__main__':
         if(args.iid == 'label'):
             rot_deg_i = 0
             
-        elif(args.iid == 'covariate')
+        elif(args.iid == 'covariate'):
             rot_deg_i = rot_deg[cluster_idx[idx]]
             cluster_list.append(rot_deg_i)
 
         client = ClientUpdate(train_dataset, dict_users[idx], 
-                              dict_users_val[idx], criterion, args.lr, device, args.bs, rot_deg_i, args.num_clients)
+                              dict_users_val[idx], criterion, args.lr, device, args.bs,
+                              rot_deg_i, args.num_clients, args.dataset)
         clients.append(client)
                     
     sample_frac = 1.0
@@ -347,10 +377,14 @@ if __name__ == '__main__':
     for j in range(len(clients)):
         client_heatmap[:,j] = clients[j].n_sampled
     
-    if(args.DAC):
+    if(args.DAC or args.DAC_var):
         plt.figure(figsize=(12,8))
         sns.heatmap(client_heatmap)
-        plt.savefig(f"./save/figures/heatmap_tau_{args.tau}_nsampled_{args.n_sampled}.eps")
+        if(args.DAC):
+            method_name = 'DAC'
+        elif(args.DAC_var):
+            method_name = 'DAC_var'
+        plt.savefig(f"./save/figures/heatmap_{method_name}_{args.tau}_nsampled_{args.n_sampled}.eps")
     else:
         if(args.oracle):
             method_name = 'Oracle'
@@ -358,8 +392,6 @@ if __name__ == '__main__':
             method_name = 'PENS'
         elif(args.random):
             method_name = 'Random'
-        elif(args.DAC_var):
-            method_name = 'DACvar'
         plt.figure(figsize=(12,8))
         sns.heatmap(client_heatmap)
         plt.savefig(f"./save/figures/heatmap_{method_name}_nsampled_{args.n_sampled}.eps")
@@ -368,25 +400,42 @@ if __name__ == '__main__':
     acc_list1 = []
     acc_list2 = []
     acc_list3 = []
-    
-    test_loaders = []
-    for nc in args.n_clusters:
-        test_loader = create_test_data(nc,rot_deg,args.dataset)
-        test_loaders.append(test_loader)
 
-    for i in range(num_clients):
-        if(i in cluster_0):
-            _, acc = test(clients[i].best_model, criterion, test_loaders[0], device)
-            acc_list0.append(acc)
-        elif(i in cluster_1):
-            _, acc = test(clients[i].best_model, criterion, test_loaders[1], device)
-            acc_list1.append(acc)
-        elif(i in cluster_2):
-            _, acc = test(clients[i].best_model, criterion, test_loaders[2], device)
-            acc_list2.append(acc)
-        elif(i in cluster_3):
-            _, acc = test(clients[i].best_model, criterion, test_loaders[3], device)
-            acc_list3.append(acc)
+    if(args.iid == 'covariate'):
+        test_loaders = []
+        for nc in range(args.n_clusters):
+            test_loader = create_test_data(nc,rot_deg,args.dataset)
+            test_loaders.append(test_loader)
+
+        for i in range(num_clients):
+            if(i in cluster_0):
+                _, acc = test(clients[i].best_model, criterion, test_loaders[0], device)
+                acc_list0.append(acc)
+            elif(i in cluster_1):
+                _, acc = test(clients[i].best_model, criterion, test_loaders[1], device)
+                acc_list1.append(acc)
+            elif(i in cluster_2):
+                _, acc = test(clients[i].best_model, criterion, test_loaders[2], device)
+                acc_list2.append(acc)
+            elif(i in cluster_3):
+                _, acc = test(clients[i].best_model, criterion, test_loaders[3], device)
+                acc_list3.append(acc)
+    elif(args.iid == 'label'):
+        if(args.dataset == 'cifar10'):
+            trans_cifar_test = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+            test_dataset = torchvision.datasets.CIFAR10('.', train=False, download=True, transform=trans_cifar_test)
+            test_loader = DataLoader(test_dataset, batch_size=1)
+        #elif(args.dataset == 'fashion-mnist'): #not yet implemented
+        
+        for i in range(args.num_clients):
+            if(i<40):
+                group_labels = np.array([0,1,8,9]) #vehicles
+                _, acc = test_labelshift(clients[i].best_model, criterion, test_loader, device, group_labels)
+                acc_list0.append(acc)
+            else:
+                group_labels = np.array([2,3,4,5,6,7]) #animals
+                _, acc = test_labelshift(clients[i].best_model, criterion, test_loader, device, group_labels)
+                acc_list1.append(acc)
 
     test_acc_0 = np.mean(acc_list0)
     test_acc_1 = np.mean(acc_list1)
@@ -394,5 +443,5 @@ if __name__ == '__main__':
     test_acc_3 = np.mean(acc_list3)
                     
     with open('./save/'+filename,'a') as f1:
-        f1.write(f'{args.n_rounds};{args.n_rounds_pens};{args.num_clients};{args.local_ep};{args.bs};{args.lr};{args.n_clusters};{args.pens};{args.DAC};{args.DAC_var};{args.oracle};{args.random};{args.top_m};{args.n_sampled};{args.n_extra_neighbours};{args.n_data_train};{args.n_data_val};{args.tau};{test_acc_0};{test_acc_1};{test_acc_2};{test_acc_3};{args.dataset}')
+        f1.write(f'{args.n_rounds};{args.n_rounds_pens};{args.num_clients};{args.local_ep};{args.bs};{args.lr};{args.n_clusters};{args.pens};{args.DAC};{args.DAC_var};{args.oracle};{args.random};{args.top_m};{args.n_sampled};{args.n_data_train};{args.n_data_val};{args.tau};{test_acc_0};{test_acc_1};{test_acc_2};{test_acc_3};{args.dataset}')
         f1.write("\n")

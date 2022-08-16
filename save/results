@@ -1,0 +1,5 @@
+n_rounds;n_rouns_pens;num_clients;local_ep;bs;lr;n_clusters;pens;DAC;DAC_var;oracle;random;top_m;n_sampled;n_extra_neighbours;n_data_train;n_data_val;tau;test_acc0;test_acc1;test_acc2;test_acc3;dataset
+2;0;2;2;8;0.01;2;False;True;False;False;False;0;1;50;100;20.0;12.915;nan;nan;nan;cifar10
+2;0;2;2;8;0.01;2;False;True;False;False;False;0;1;50;100;20.0;12.735;nan;nan;nan;cifar10
+2;0;2;2;8;0.01;2;False;False;True;False;False;0;1;50;100;20.0;12.73;nan;nan;nan;cifar10
+2;0;2;2;8;0.01;2;False;False;True;False;False;0;1;50;100;20.0;0.0;nan;nan;nan;cifar10

@@ -2,21 +2,21 @@ import argparse
 
 def args_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--n_rounds', type=int, default=10, help="rounds of training")
-    parser.add_argument('--n_rounds_pens', type=int, default=10, help="rounds of training")
+    parser.add_argument('--n_rounds', type=int, default=100, help="rounds of training")
+    parser.add_argument('--n_rounds_pens', type=int, default=0, help="rounds of training")
     parser.add_argument('--num_clients', type=int, default=100, help="number of clients: K")
-    parser.add_argument('--frac', type=float, default=0.1, help="the fraction of clients: C")
+    parser.add_argument('--frac', type=float, default=1.0, help="the fraction of clients: C")
     parser.add_argument('--bs', type=int, default=8, help="batch size")
     parser.add_argument('--lr', type=float, default=0.01, help="learning rate")
-    parser.add_argument('--momentum', type=float, default=0.5, help="SGD momentum (default: 0.5)")
+    parser.add_argument('--local_ep', type=int, default=3, help="the number of local epochs: E")
     
     parser.add_argument('--a', type=float, default='0', help="a value in minmax scale")
     parser.add_argument('--b', type=float, default='1', help="b value in minmax scale")
     parser.add_argument('--tau', type=float, default='1', help="temperature in softmax")
     
     parser.add_argument('--n_sampled', type=int, default=5)
-    parser.add_argument('--top_m', type=int, default=2)
-    parser.add_argument('--n_clusters', type=int, default=2)
+    parser.add_argument('--top_m', type=int, default=0)
+    parser.add_argument('--n_clusters', type=int, default=4)
     parser.add_argument('--pens', action='store_true')
     parser.add_argument('--DAC', action='store_true')
     parser.add_argument('--DAC_var', action='store_true')
