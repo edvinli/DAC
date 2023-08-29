@@ -163,7 +163,7 @@ def train_DAC(n_rounds, n_local_epochs, clients, sample_frac, n_sampled, tau, ne
                             #save tuple (ki_score, k)
                             ki_scores.append( (clients[i].priors[neighbour_idx[k]], k ))
                     
-                    ki_scores.sort(key=lambda x:x[1]) #sort tuple
+                    ki_scores.sort(key=lambda x:x[0]) #sort tuple
                     ki_max = ki_scores[-1][1] #choose k with max similarity to i
                     ki_max_score = ki_scores[-1][0]
                     
